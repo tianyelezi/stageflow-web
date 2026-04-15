@@ -3,19 +3,18 @@ import { NextRequest } from 'next/server';
 import { AuthError, ForbiddenError, requireAuth } from '@/lib/auth';
 import { success, error } from '@/lib/api-response';
 import { getDb, ObjectId } from '@/lib/db';
-import { requireProjectOwner } from '@/lib/rbac';
-import { referenceUrlFor } from '@/lib/reference-storage';
+import { requireDesignerOrOwnerIfNoDesigner } from '@/lib/rbac';
 import { workflowClient, WorkflowServiceError } from '@/lib/workflow-client';
-import { confirmResearchSchema } from '@/lib/validations/project';
+import { alignmentAnswersSchema } from '@/lib/validations/project';
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireAuth();
     const { id } = await params;
-    await requireProjectOwner(auth, id);
+    await requireDesignerOrOwnerIfNoDesigner(auth, id);
 
     const body: unknown = await request.json();
-    const parsed = confirmResearchSchema.safeParse(body);
+    const parsed = alignmentAnswersSchema.safeParse(body);
     if (!parsed.success) {
       const details = parsed.error.issues.map((e) => ({
         field: e.path.join('.'),
@@ -47,39 +46,20 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return error('WORKFLOW_ERROR', '项目工作流未启动', 400);
     }
 
-    const { corrections, referenceImageIds } = parsed.data;
+    const { answers } = parsed.data;
 
-    // Resolve referenceImageIds → real fetchable URLs for the Python workflow.
-    let referenceImageUrls: string[] = [];
-    if (referenceImageIds && referenceImageIds.length > 0) {
-      const oids: ObjectId[] = [];
-      for (const rid of referenceImageIds) {
-        try {
-          oids.push(new ObjectId(rid));
-        } catch {
-          return error('VALIDATION_ERROR', `参考图 ID 无效: ${rid}`, 400);
-        }
-      }
-      const refs = await db
-        .collection('reference_images')
-        .find({ _id: { $in: oids }, projectId: objectId })
-        .toArray();
-      if (refs.length !== oids.length) {
-        return error('VALIDATION_ERROR', '部分参考图不存在或不属于该项目', 400);
-      }
-      referenceImageUrls = refs
-        .map((r) => (r.storageKey ? referenceUrlFor(r.storageKey as string) : null))
-        .filter((u): u is string => Boolean(u));
-    }
+    const workflowAnswers = answers.map((a) => ({
+      question_id: a.questionId,
+      answer: a.answer,
+    }));
 
-    await workflowClient.resumeWorkflow(project.workflowRunId as string, 'research_review', {
-      corrections: corrections ?? '',
-      reference_image_urls: referenceImageUrls,
+    await workflowClient.resumeWorkflow(project.workflowRunId as string, 'alignment_answers', {
+      answers: workflowAnswers,
     });
 
     return success({
-      status: 'visual_suggestions',
-      message: '品牌研究已确认，正在生成视觉建议...',
+      status: 'generating_layouts',
+      message: '对齐完成，正在生成空间设计...',
     });
   } catch (err: unknown) {
     if (err instanceof AuthError) {
@@ -91,6 +71,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (err instanceof WorkflowServiceError) {
       return error('WORKFLOW_ERROR', '工作流服务暂时不可用，请稍后重试', 503);
     }
-    return error('INTERNAL_ERROR', '确认研究失败', 500);
+    return error('INTERNAL_ERROR', '提交对齐答案失败', 500);
   }
 }

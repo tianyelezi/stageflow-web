@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 import { AuthError, ForbiddenError, requireAuth } from '@/lib/auth';
 import { success, error } from '@/lib/api-response';
 import { getDb, ObjectId } from '@/lib/db';
-import { requireProjectAccess } from '@/lib/rbac';
+import { requireProjectOwner } from '@/lib/rbac';
 import { workflowClient, WorkflowServiceError } from '@/lib/workflow-client';
 
 const STEPS_AFTER_DIRECTION_SELECTION = [
@@ -18,7 +18,7 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
   try {
     const auth = await requireAuth();
     const { id } = await params;
-    await requireProjectAccess(auth, id);
+    await requireProjectOwner(auth, id);
 
     let projectId: ObjectId;
     try {

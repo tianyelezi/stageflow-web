@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 import { AuthError, ForbiddenError, requireAuth } from '@/lib/auth';
 import { success, error } from '@/lib/api-response';
 import { getDb, ObjectId } from '@/lib/db';
-import { requireProjectAccess } from '@/lib/rbac';
+import { requireDesignerOrOwnerIfNoDesigner } from '@/lib/rbac';
 import { workflowClient, WorkflowServiceError } from '@/lib/workflow-client';
 
 interface AlignmentAnswer {
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     const auth = await requireAuth();
     const { id } = await params;
-    await requireProjectAccess(auth, id);
+    await requireDesignerOrOwnerIfNoDesigner(auth, id);
 
     let projectId: ObjectId;
     try {
