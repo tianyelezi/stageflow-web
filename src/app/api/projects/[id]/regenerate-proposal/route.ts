@@ -51,6 +51,11 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
         { $set: { status: 'generating', updatedAt: new Date().toISOString() } },
       );
 
+    // P0-5: actually kick off the Python workflow to rebuild the proposal
+    // from existing spatial layouts. Previously this route just flipped
+    // status and returned 202, leaving the button dead.
+    await workflowClient.regenerateProposal(id);
+
     return success({ message: '正在重新生成提案文档...', previousStatus: 'stale' }, 202);
   } catch (err: unknown) {
     if (err instanceof AuthError) {

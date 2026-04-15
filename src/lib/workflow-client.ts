@@ -78,6 +78,16 @@ export const workflowClient = {
     }>(`/workflow/runs/${runId}/supersede`, { method: 'POST' });
   },
 
+  regenerateProposal(projectId: string) {
+    return workflowRequest<{ status: string; project_id: string }>(
+      '/workflow/regenerate-proposal',
+      {
+        method: 'POST',
+        body: JSON.stringify({ project_id: projectId }),
+      },
+    );
+  },
+
   regenerateZone(projectId: string, zoneType: string, additionalNotes?: string) {
     return workflowRequest<{ status: string; zone_type: string }>('/workflow/regenerate-zone', {
       method: 'POST',
