@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 import { AuthError, ForbiddenError, requireAuth } from '@/lib/auth';
 import { success, error } from '@/lib/api-response';
 import { getDb, ObjectId } from '@/lib/db';
-import { requireProjectOwner } from '@/lib/rbac';
+import { requireProjectAccess } from '@/lib/rbac';
 import { workflowClient, WorkflowServiceError } from '@/lib/workflow-client';
 
 const STEPS_AFTER_DIRECTION_SELECTION = [
@@ -18,7 +18,7 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
   try {
     const auth = await requireAuth();
     const { id } = await params;
-    await requireProjectOwner(auth, id);
+    await requireProjectAccess(auth, id);
 
     let projectId: ObjectId;
     try {
@@ -57,15 +57,13 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
       db.collection('designer_alignments').deleteMany({ projectId }),
       db.collection('spatial_layouts').deleteMany({ projectId }),
       db.collection('proposals').deleteMany({ projectId }),
-      db
-        .collection('projects')
-        .updateOne(
-          { _id: projectId },
-          {
-            $set: { status: 'direction_selection', updatedAt: new Date().toISOString() },
-            $unset: { workflowRunId: '' },
-          },
-        ),
+      db.collection('projects').updateOne(
+        { _id: projectId },
+        {
+          $set: { status: 'direction_selection', updatedAt: new Date().toISOString() },
+          $unset: { workflowRunId: '' },
+        },
+      ),
     ]);
 
     return success({

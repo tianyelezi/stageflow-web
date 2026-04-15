@@ -17,8 +17,9 @@ export async function POST(request: NextRequest) {
 
   try {
     const auth = await requireAuth();
-    // Per docs/architecture.md RBAC matrix: 创建项目 allowed for event_company/admin only.
-    await requireRole(auth, 'admin', 'event_company');
+    // Single-owner model: any authenticated role can create a project and
+    // run it end-to-end.
+    await requireRole(auth, 'admin', 'event_company', 'designer');
 
     // Per-user rate limit on AI workflow creation
     const limit = await checkRateLimit(`submit:${auth.userId}`, MAX_SUBMITS_PER_HOUR, 3600);

@@ -3,13 +3,13 @@ import { NextRequest } from 'next/server';
 import { AuthError, ForbiddenError, requireAuth } from '@/lib/auth';
 import { success, error } from '@/lib/api-response';
 import { getDb, ObjectId } from '@/lib/db';
-import { requireProjectOwner } from '@/lib/rbac';
+import { requireProjectAccess } from '@/lib/rbac';
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireAuth();
     const { id } = await params;
-    await requireProjectOwner(auth, id);
+    await requireProjectAccess(auth, id);
 
     const body = await request.json();
     const requirements = typeof body?.requirements === 'string' ? body.requirements.trim() : '';

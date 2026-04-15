@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 import { AuthError, ForbiddenError, requireAuth } from '@/lib/auth';
 import { success, error } from '@/lib/api-response';
 import { getDb, ObjectId } from '@/lib/db';
-import { requireDesignerOrOwnerIfNoDesigner } from '@/lib/rbac';
+import { requireProjectAccess } from '@/lib/rbac';
 import { workflowClient, WorkflowServiceError } from '@/lib/workflow-client';
 import { alignmentAnswersSchema } from '@/lib/validations/project';
 
@@ -11,7 +11,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     const auth = await requireAuth();
     const { id } = await params;
-    await requireDesignerOrOwnerIfNoDesigner(auth, id);
+    await requireProjectAccess(auth, id);
 
     const body: unknown = await request.json();
     const parsed = alignmentAnswersSchema.safeParse(body);

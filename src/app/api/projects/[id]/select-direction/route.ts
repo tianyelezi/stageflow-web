@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 import { AuthError, ForbiddenError, requireAuth } from '@/lib/auth';
 import { success, error } from '@/lib/api-response';
 import { getDb, ObjectId } from '@/lib/db';
-import { requireProjectOwner } from '@/lib/rbac';
+import { requireProjectAccess } from '@/lib/rbac';
 import { workflowClient, WorkflowServiceError } from '@/lib/workflow-client';
 import { selectDirectionSchema } from '@/lib/validations/project';
 
@@ -11,7 +11,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     const auth = await requireAuth();
     const { id } = await params;
-    await requireProjectOwner(auth, id);
+    await requireProjectAccess(auth, id);
 
     const body: unknown = await request.json();
     const parsed = selectDirectionSchema.safeParse(body);
@@ -51,15 +51,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     await workflowClient.resumeWorkflow(project.workflowRunId as string, 'direction_selection', {
       selected_direction_id: directionId,
     });
-
-    // Notify designer if assigned (non-blocking)
-    if (project.designerId) {
-      const { sendAlignmentReady } = await import('@/lib/email');
-      const designer = await db.collection('users').findOne({ _id: project.designerId });
-      if (designer) {
-        sendAlignmentReady(designer.email, designer.name, project.eventName).catch(() => {});
-      }
-    }
 
     return success({
       status: 'alignment',
