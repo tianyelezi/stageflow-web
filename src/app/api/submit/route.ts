@@ -59,6 +59,38 @@ export async function POST(request: NextRequest) {
     insertResult = await db.collection('projects').insertOne(projectDoc);
     const projectId = insertResult.insertedId.toHexString();
 
+    // Expand template fields into template_overrides so the workflow
+    // prompts see actual lighting/mood/structure/palette guidance, not a
+    // bare template_id (review P1: "模板能力是表面文章").
+    let templateOverrides: Record<string, unknown> | null = null;
+    if (inputFields.templateId) {
+      let templateOid: ObjectId;
+      try {
+        templateOid = new ObjectId(inputFields.templateId);
+      } catch {
+        return error('VALIDATION_ERROR', '模板 ID 格式无效', 400);
+      }
+      const template = await db
+        .collection('templates')
+        .findOne({ _id: templateOid, deletedAt: null });
+      if (!template) {
+        return error('NOT_FOUND', '模板不存在或已删除', 404);
+      }
+      const presets = (template.stylePresets ?? {}) as {
+        lighting?: string;
+        structure?: string;
+        mood?: string;
+      };
+      templateOverrides = {
+        template_id: inputFields.templateId,
+        lighting: presets.lighting || null,
+        structure: presets.structure || null,
+        mood: presets.mood || null,
+        default_color_palette: template.defaultColorPalette ?? [],
+        default_zones: template.defaultZones ?? [],
+      };
+    }
+
     const inputData: Record<string, unknown> = {
       company_name: inputFields.companyName,
       event_type: inputFields.eventType,
@@ -73,7 +105,7 @@ export async function POST(request: NextRequest) {
         : null,
       budget: inputFields.budget ?? null,
       additional_requirements: inputFields.additionalRequirements ?? null,
-      template_overrides: inputFields.templateId ? { template_id: inputFields.templateId } : null,
+      template_overrides: templateOverrides,
     };
     const workflowResult = await workflowClient.startWorkflow(
       projectId,
