@@ -59,6 +59,10 @@ export async function GET(request: NextRequest) {
       proposal,
     });
 
+    const errorInfo =
+      (project.error as { message?: string; node?: string; at?: unknown } | null | undefined) ??
+      null;
+
     return success({
       project: {
         id: project._id.toHexString(),
@@ -67,6 +71,7 @@ export async function GET(request: NextRequest) {
         eventName: project.eventName,
         status: derivedStatus.status,
         progress: derivedStatus.progress,
+        error: derivedStatus.status === 'failed' && errorInfo ? errorInfo : null,
         createdAt: project.createdAt,
         updatedAt: project.updatedAt,
       },
@@ -137,7 +142,11 @@ function deriveStatus(
   project: Record<string, unknown>,
   data: DataPresence,
 ): { status: string; progress: number } {
-  // If project has explicit completed status, trust it
+  // Trust explicit terminal states (set by the Python workflow's
+  // mongo_project_status_listener on workflow_completed/failed).
+  if (project.status === 'failed') {
+    return { status: 'failed', progress: (project.progress as number) ?? 0 };
+  }
   if (project.status === 'completed') {
     return { status: 'completed', progress: 100 };
   }
