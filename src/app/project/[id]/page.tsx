@@ -65,6 +65,7 @@ const STATUS_TO_STEP: Record<ProjectStatus, string> = {
   generating_layouts: 'spatial_design',
   proposal_ready: 'proposal_generation',
   completed: 'proposal_generation',
+  failed: 'brand_research', // progress bar just shows at the failure point
 };
 
 // === Types for results payload ===
@@ -77,6 +78,7 @@ interface ProjectResults {
     companyName: string;
     eventName: string;
     designerId?: string | null;
+    error?: { message: string; node: string; at: string } | null;
   };
   brandResearch?: BrandResearchResult;
   visualElements?: VisualElements;
@@ -187,6 +189,25 @@ export default function ProjectDetailPage({ params }: ProjectDetailPageProps) {
         <h1 className="text-2xl font-bold">{results.project.companyName}</h1>
         <p className="mt-1 text-muted-foreground">{results.project.eventName}</p>
       </div>
+
+      {/* Failure banner — surfaces workflow_failed to the user so they know
+          what went wrong and that retrying (e.g. new project) is the move. */}
+      {status === 'failed' && results.project.error && (
+        <div className="mb-6 rounded-lg border border-red-300 bg-red-50 p-4 text-sm">
+          <div className="font-medium text-red-800">
+            工作流在 &ldquo;{results.project.error.node || '未知节点'}&rdquo; 处失败
+          </div>
+          <div className="mt-2 whitespace-pre-wrap break-words text-red-700">
+            {results.project.error.message}
+          </div>
+          <div className="mt-2 text-xs text-red-600">
+            时间：{new Date(results.project.error.at).toLocaleString('zh-CN')}
+          </div>
+          <p className="mt-3 text-xs text-red-700">
+            建议：检查 AI provider 的 API key 是否配置正确，或稍后新建项目重试。
+          </p>
+        </div>
+      )}
 
       {/* Workflow progress */}
       <WorkflowProgress currentStep={STATUS_TO_STEP[status]} progress={progress} />
