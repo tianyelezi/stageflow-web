@@ -12,7 +12,11 @@ import { DirectionSelector } from '@/components/workflow/direction-selector';
 import { WorkflowProgress } from '@/components/workflow/workflow-progress';
 import { useCurrentUser } from '@/hooks/use-auth';
 import { useWorkflowUIStore } from '@/stores/workflow-ui';
-import { projectResultsOptions, useResetDirectionMutation } from '@/hooks/use-project';
+import {
+  projectResultsOptions,
+  useRegenerateProposalMutation,
+  useResetDirectionMutation,
+} from '@/hooks/use-project';
 import { useSSE } from '@/hooks/use-sse';
 import { projectKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
@@ -116,6 +120,11 @@ interface ProjectResults {
 // === Helper ===
 
 function isAtOrPast(current: ProjectStatus, target: ProjectStatus): boolean {
+  // When the workflow failed partway, render any data the backend did
+  // produce. Data-presence checks wrapping each section still prevent
+  // rendering empty cards, so this just stops "failed" from hiding work
+  // the user already paid for.
+  if (current === 'failed') return true;
   return STATUS_ORDER.indexOf(current) >= STATUS_ORDER.indexOf(target);
 }
 
@@ -145,6 +154,7 @@ export default function ProjectDetailPage({ params }: ProjectDetailPageProps) {
 
   const queryClient = useQueryClient();
   const resetDirectionMutation = useResetDirectionMutation(id);
+  const regenerateProposalMutation = useRegenerateProposalMutation(id);
 
   const handleInvalidate = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: projectKeys.detail(id) });
@@ -207,8 +217,10 @@ export default function ProjectDetailPage({ params }: ProjectDetailPageProps) {
         <p className="mt-1 text-muted-foreground">{results.project.eventName}</p>
       </div>
 
-      {/* Failure banner — surfaces workflow_failed to the user so they know
-          what went wrong and that retrying (e.g. new project) is the move. */}
+      {/* Failure banner — surfaces workflow_failed to the user. If partial
+          work exists (e.g. spatial_layouts present but proposal missing),
+          the sections below still render and a "retry proposal" button
+          lets the user finish without starting over. */}
       {status === 'failed' && results.project.error && (
         <div className="mb-6 rounded-lg border border-red-300 bg-red-50 p-4 text-sm">
           <div className="font-medium text-red-800">
@@ -221,9 +233,25 @@ export default function ProjectDetailPage({ params }: ProjectDetailPageProps) {
           <div className="mt-2 text-xs text-red-600">
             时间：{new Date(results.project.error.at).toLocaleString('zh-CN')}
           </div>
-          <p className="mt-3 text-xs text-red-700">
-            建议：检查 AI provider 的 API key 是否配置正确，或稍后新建项目重试。
-          </p>
+          {results.spatialLayouts?.zones?.length && !results.proposal ? (
+            <div className="mt-3 flex items-center gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => regenerateProposalMutation.mutate()}
+                disabled={regenerateProposalMutation.isPending}
+              >
+                {regenerateProposalMutation.isPending ? '重新生成中...' : '重试生成提案'}
+              </Button>
+              <span className="text-xs text-red-700">
+                空间设计已完成，只差最后一步提案生成
+              </span>
+            </div>
+          ) : (
+            <p className="mt-3 text-xs text-red-700">
+              建议：检查 AI provider 的 API key 是否配置正确，或稍后新建项目重试。
+            </p>
+          )}
         </div>
       )}
 
