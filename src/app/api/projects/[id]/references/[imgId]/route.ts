@@ -4,24 +4,42 @@ import { AuthError, ForbiddenError, requireAuth } from '@/lib/auth';
 import { error } from '@/lib/api-response';
 import { getDb, ObjectId } from '@/lib/db';
 import { requireProjectAccess } from '@/lib/rbac';
-import { readReferenceImage } from '@/lib/reference-storage';
+import { readReferenceImage, verifyReferenceSignature } from '@/lib/reference-storage';
 
 /**
- * Auth-gated reference image fetch.
+ * Reference image fetch. Two auth paths:
  *
- * Previously this route 302'd to the public `/uploads/...` path, which
- * meant anyone with the URL could bypass requireProjectAccess by calling
- * the static path directly. Now the bytes are always streamed through
- * this handler so project authorization is enforced on every fetch.
+ * 1. Short-lived HMAC-signed URL (`?sig=&exp=`) — used by the Python
+ *    workflow service during vision calls. No cookie needed; the
+ *    signature expires in 10 minutes by default.
+ * 2. Cookie + requireProjectAccess — used by browsers.
+ *
+ * Bytes are always streamed through this handler. Files are stored
+ * outside ``public/`` so the Next static server cannot serve them
+ * directly.
  */
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; imgId: string }> },
 ) {
   try {
-    const auth = await requireAuth();
     const { id, imgId } = await params;
-    await requireProjectAccess(auth, id);
+    const sig = request.nextUrl.searchParams.get('sig');
+    const expRaw = request.nextUrl.searchParams.get('exp');
+
+    // --- Path 1: HMAC-signed URL ---------------------------------------
+    if (sig && expRaw) {
+      const exp = Number.parseInt(expRaw, 10);
+      if (!verifyReferenceSignature(id, imgId, exp, sig)) {
+        return error('UNAUTHORIZED', '签名无效或已过期', 401);
+      }
+      // signature already binds projectId + imgId; only validate the image
+      // exists and return the bytes.
+    } else {
+      // --- Path 2: cookie-based auth -----------------------------------
+      const auth = await requireAuth();
+      await requireProjectAccess(auth, id);
+    }
 
     let projectOid: ObjectId;
     let imgOid: ObjectId;

@@ -84,7 +84,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     await db.collection('reference_images').insertMany(refDocs);
 
     const imageIds = refDocs.map((d) => d._id.toHexString());
-    const imageUrls = refDocs.map((d) => referenceUrlFor(d.storageKey));
+    const imageUrls = refDocs.map((d) => referenceUrlFor(String(d.projectId), d._id.toHexString()));
 
     return success({ imageIds, imageUrls });
   } catch (err: unknown) {

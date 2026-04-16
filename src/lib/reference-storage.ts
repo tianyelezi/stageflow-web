@@ -1,21 +1,27 @@
 /**
  * Reference-image storage.
  *
- * MINIMAL VIABLE IMPLEMENTATION:
- * Currently writes uploaded files to the local filesystem under
- * `<REFERENCE_UPLOAD_DIR>/<projectId>/<imgId><ext>` and returns a
- * `/uploads/references/...` URL that is served as static assets by Next.
+ * Files are written under ``REFERENCE_UPLOAD_DIR`` (default ``var/uploads/
+ * references`` — intentionally outside ``public/`` so Next's static server
+ * does NOT expose them). Access always goes through the BFF handler at
+ * ``/api/projects/:id/references/:imgId`` which either:
+ *   - verifies a short-lived HMAC signature (used by the Python workflow
+ *     service when calling vision models), OR
+ *   - checks the auth cookie + project membership (used by browsers).
  *
- * TODO(P0-3): Replace with real object storage once @aws-sdk/client-s3 is
- * added to the workspace dependencies. The storage abstraction below is
- * designed so only `putObject` / `getUrl` need swapping — callers stay
- * unchanged. See docs/reviews/p0-3 note in the adversarial review.
+ * TODO(future): move to real object storage with presigned URLs; the
+ * abstraction below (storageKey + signed URL) is designed so only
+ * ``storeReferenceImage`` / ``readReferenceImage`` need swapping.
  */
 
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join, extname } from 'node:path';
+import { join, extname, resolve } from 'node:path';
 
-const DEFAULT_UPLOAD_DIR = join(process.cwd(), 'public', 'uploads', 'references');
+import { env } from '@/lib/env';
+
+const DEFAULT_UPLOAD_DIR = resolve(process.cwd(), 'var', 'uploads', 'references');
+const DEFAULT_SIGN_TTL_SECONDS = 600; // 10 minutes — enough for a vision call
 
 function uploadDir(): string {
   return process.env.REFERENCE_UPLOAD_DIR ?? DEFAULT_UPLOAD_DIR;
@@ -31,8 +37,8 @@ function extensionFor(contentType: string, filename: string): string {
 }
 
 export interface StoredReference {
-  storageKey: string; // Opaque key persisted in Mongo; future S3 object key.
-  url: string; // URL Python workflow can fetch (absolute when PUBLIC_BASE_URL set).
+  storageKey: string;
+  url: string; // HMAC-signed BFF URL usable by both the Python service and browsers.
 }
 
 export async function storeReferenceImage(params: {
@@ -52,23 +58,60 @@ export async function storeReferenceImage(params: {
 
   return {
     storageKey: relKey,
-    url: referenceUrlFor(relKey),
+    url: referenceUrlFor(projectId, imgId),
   };
 }
 
 /**
- * Build the URL Python workflow can fetch. Falls back to a path that Next
- * serves from /public. Set PUBLIC_BASE_URL in production so Python can fetch
- * absolute URLs.
+ * Build a short-lived HMAC-signed URL the Python workflow (or any server-
+ * side caller) can fetch without a user cookie. Browsers can also hit the
+ * same URL once authenticated; the BFF handler accepts either sig or
+ * cookie.
  */
-export function referenceUrlFor(storageKey: string): string {
+export function referenceUrlFor(
+  projectId: string,
+  imgId: string,
+  ttlSeconds: number = DEFAULT_SIGN_TTL_SECONDS,
+): string {
+  const exp = Math.floor(Date.now() / 1000) + ttlSeconds;
+  const sig = computeSignature(projectId, imgId, exp);
   const base = process.env.PUBLIC_BASE_URL?.replace(/\/$/, '') ?? '';
-  const path = `/uploads/references/${storageKey}`;
+  const path = `/api/projects/${projectId}/references/${imgId}?sig=${sig}&exp=${exp}`;
   return base ? `${base}${path}` : path;
 }
 
 /**
- * Read the binary payload back out (used by the dev-mode proxy route).
+ * Verify a signature previously issued by ``referenceUrlFor``. Returns
+ * true only when the HMAC matches and the expiry has not passed.
+ */
+export function verifyReferenceSignature(
+  projectId: string,
+  imgId: string,
+  exp: number,
+  sig: string,
+): boolean {
+  if (!Number.isFinite(exp) || exp <= Math.floor(Date.now() / 1000)) return false;
+  const expected = computeSignature(projectId, imgId, exp);
+  return timingSafeEqualHex(expected, sig);
+}
+
+function computeSignature(projectId: string, imgId: string, exp: number): string {
+  return createHmac('sha256', env.INTERNAL_NOTIFY_SECRET)
+    .update(`${projectId}:${imgId}:${exp}`)
+    .digest('hex');
+}
+
+function timingSafeEqualHex(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  try {
+    return timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Read the binary payload back (streamed by the BFF handler).
  */
 export async function readReferenceImage(storageKey: string): Promise<Buffer> {
   return readFile(join(uploadDir(), storageKey));

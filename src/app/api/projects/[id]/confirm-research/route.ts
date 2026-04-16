@@ -68,7 +68,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         return error('VALIDATION_ERROR', '部分参考图不存在或不属于该项目', 400);
       }
       referenceImageUrls = refs
-        .map((r) => (r.storageKey ? referenceUrlFor(r.storageKey as string) : null))
+        .map((r) =>
+          r.storageKey
+            ? referenceUrlFor(String(r.projectId), String(r._id))
+            : null,
+        )
         .filter((u): u is string => Boolean(u));
     }
 
