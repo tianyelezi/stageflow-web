@@ -4,16 +4,15 @@ import { AuthError, ForbiddenError, requireAuth } from '@/lib/auth';
 import { error } from '@/lib/api-response';
 import { getDb, ObjectId } from '@/lib/db';
 import { requireProjectAccess } from '@/lib/rbac';
-import { readReferenceImage, referenceUrlFor } from '@/lib/reference-storage';
+import { readReferenceImage } from '@/lib/reference-storage';
 
 /**
- * Return a URL the caller (browser or Python workflow) can use to fetch
- * the reference image.
+ * Auth-gated reference image fetch.
  *
- * - In the S3/OSS future this will 302 to a short-lived presigned URL.
- * - For the local-filesystem minimal implementation we either 302 to the
- *   public `/uploads/...` path (browsers) or stream the bytes back when
- *   called with `?raw=1` (used by Python service).
+ * Previously this route 302'd to the public `/uploads/...` path, which
+ * meant anyone with the URL could bypass requireProjectAccess by calling
+ * the static path directly. Now the bytes are always streamed through
+ * this handler so project authorization is enforced on every fetch.
  */
 export async function GET(
   request: NextRequest,
@@ -42,19 +41,14 @@ export async function GET(
       return error('NOT_FOUND', '参考图不存在', 404);
     }
 
-    const raw = request.nextUrl.searchParams.get('raw') === '1';
-    if (raw) {
-      const buffer = await readReferenceImage(doc.storageKey as string);
-      return new NextResponse(new Uint8Array(buffer), {
-        status: 200,
-        headers: {
-          'Content-Type': (doc.contentType as string) ?? 'application/octet-stream',
-          'Cache-Control': 'private, max-age=300',
-        },
-      });
-    }
-
-    return NextResponse.redirect(new URL(referenceUrlFor(doc.storageKey as string), request.url));
+    const buffer = await readReferenceImage(doc.storageKey as string);
+    return new NextResponse(new Uint8Array(buffer), {
+      status: 200,
+      headers: {
+        'Content-Type': (doc.contentType as string) ?? 'application/octet-stream',
+        'Cache-Control': 'private, max-age=300',
+      },
+    });
   } catch (err: unknown) {
     if (err instanceof AuthError) {
       return error('UNAUTHORIZED', err.message, 401);

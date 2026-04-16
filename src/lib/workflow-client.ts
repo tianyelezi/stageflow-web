@@ -102,6 +102,12 @@ export const workflowClient = {
   health() {
     return workflowRequest<{ status: string; mongodb: string; redis: string }>('/workflow/health');
   },
+
+  getProposalDownloadUrl(projectId: string, kind: 'pdf' | 'pptx') {
+    return workflowRequest<{ url: string; expiresIn: number }>(
+      `/workflow/proposals/${projectId}/download-url?kind=${kind}`,
+    );
+  },
 };
 
 export { WorkflowServiceError };
