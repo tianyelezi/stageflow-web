@@ -108,6 +108,12 @@ export const workflowClient = {
       `/workflow/proposals/${projectId}/download-url?kind=${kind}`,
     );
   },
+
+  getZoneImageUrl(projectId: string, zoneType: string) {
+    return workflowRequest<{ url: string; expiresIn: number }>(
+      `/workflow/zones/${projectId}/${encodeURIComponent(zoneType)}/image-url`,
+    );
+  },
 };
 
 export { WorkflowServiceError };

@@ -78,7 +78,12 @@ export async function GET(request: NextRequest) {
       designerAlignment: designerAlignment
         ? normalizeToCamelCase(stripMongoId(designerAlignment))
         : null,
-      spatialLayouts: spatialLayouts ? normalizeToCamelCase(stripMongoId(spatialLayouts)) : null,
+      spatialLayouts: spatialLayouts
+        ? rewriteZoneImageUrls(
+            normalizeToCamelCase(stripMongoId(spatialLayouts)) as Record<string, unknown>,
+            project._id.toHexString(),
+          )
+        : null,
       proposal: proposal ? normalizeToCamelCase(stripMongoId(proposal)) : null,
       currentStep: project.status,
       progress: project.progress,
@@ -97,6 +102,26 @@ export async function GET(request: NextRequest) {
 function stripMongoId(doc: Record<string, unknown>): Record<string, unknown> {
   const { _id, projectId, ...rest } = doc;
   return rest;
+}
+
+function rewriteZoneImageUrls(
+  layouts: Record<string, unknown>,
+  projectId: string,
+): Record<string, unknown> {
+  const zones = layouts.zones as Array<Record<string, unknown>> | undefined;
+  if (!Array.isArray(zones)) return layouts;
+  layouts.zones = zones.map((z) => {
+    const zoneType = z.type as string | undefined;
+    const hasKey = Boolean(z.imageKey ?? z.image_key);
+    if (zoneType && hasKey) {
+      return {
+        ...z,
+        imageUrl: `/api/projects/${projectId}/zones/${encodeURIComponent(zoneType)}/image`,
+      };
+    }
+    return z;
+  });
+  return layouts;
 }
 
 interface DataPresence {
