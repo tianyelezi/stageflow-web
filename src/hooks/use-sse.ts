@@ -35,20 +35,51 @@ export function useSSE({ projectId, enabled = true }: UseSSEOptions) {
 
     es.onopen = () => {
       setSSEConnected(true);
+      // Full-state fallback on every connect (initial + reconnect): refetch
+      // the detail query so any missed events can't leave the UI stale.
+      queryClient.invalidateQueries({ queryKey: projectKeys.detail(projectId) });
     };
 
-    es.addEventListener('message', (e) => {
+    // Server emits typed `event:` lines (progress / checkpoint / complete /
+    // error / warning). Attach a listener per type; each forwards into the
+    // same dispatch below.
+    const typedEvents: SSEEvent['event'][] = [
+      'progress',
+      'checkpoint',
+      'complete',
+      'error',
+      'warning',
+    ];
+    const onTyped = (evType: SSEEvent['event']) => (e: MessageEvent) => {
       try {
-        const data: SSEEvent = JSON.parse(e.data);
-        handleEvent(data);
+        const body = JSON.parse(e.data) as Omit<SSEEvent, 'event'>;
+        handleEvent({ ...body, event: evType });
       } catch {
-        // Ignore parse errors
+        /* ignore parse errors */
       }
-    });
+    };
+    const typedHandlers: Array<[string, EventListener]> = [];
+    for (const evType of typedEvents) {
+      const handler = onTyped(evType) as EventListener;
+      typedHandlers.push([evType, handler]);
+      es.addEventListener(evType, handler);
+    }
+
+    // Back-compat: bare `message` events still parse the `event` field out
+    // of the JSON body (in case the server falls back to the pre-typed path).
+    const messageHandler = (e: MessageEvent) => {
+      try {
+        handleEvent(JSON.parse(e.data) as SSEEvent);
+      } catch {
+        /* ignore */
+      }
+    };
+    es.addEventListener('message', messageHandler);
 
     es.onerror = () => {
       setSSEConnected(false);
-      // EventSource auto-reconnects; on reconnect, refresh full state as fallback
+      // EventSource auto-reconnects with Last-Event-ID; onopen above
+      // re-runs the detail invalidate as a belt-and-braces fallback.
     };
 
     function handleEvent(data: SSEEvent) {
@@ -97,6 +128,10 @@ export function useSSE({ projectId, enabled = true }: UseSSEOptions) {
     }
 
     return () => {
+      for (const [evType, handler] of typedHandlers) {
+        es.removeEventListener(evType, handler);
+      }
+      es.removeEventListener('message', messageHandler);
       es.close();
       eventSourceRef.current = null;
       setSSEConnected(false);
