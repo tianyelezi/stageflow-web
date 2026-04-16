@@ -54,6 +54,23 @@ const STATUS_ORDER: readonly ProjectStatus[] = [
   'completed',
 ];
 
+/** Human-friendly labels for node names reported by workflow_failed. */
+const NODE_LABELS: Record<string, string> = {
+  brand_research: '品牌研究',
+  research_review: '研究审核',
+  visual_elements: '视觉元素提炼',
+  creative_direction: '创意方向生成',
+  direction_selection: '方向选择',
+  designer_alignment: '设计对齐',
+  spatial_layout: '空间展陈设计',
+  proposal_gen: '提案生成',
+};
+
+function nodeLabel(node: string): string {
+  const friendly = NODE_LABELS[node];
+  return friendly ? `${friendly}（${node}）` : node;
+}
+
 /** Map ProjectStatus to the workflow step key used by WorkflowProgress */
 const STATUS_TO_STEP: Record<ProjectStatus, string> = {
   draft: 'brand_research',
@@ -195,7 +212,8 @@ export default function ProjectDetailPage({ params }: ProjectDetailPageProps) {
       {status === 'failed' && results.project.error && (
         <div className="mb-6 rounded-lg border border-red-300 bg-red-50 p-4 text-sm">
           <div className="font-medium text-red-800">
-            工作流在 &ldquo;{results.project.error.node || '未知节点'}&rdquo; 处失败
+            工作流在{' '}
+            {results.project.error.node ? nodeLabel(results.project.error.node) : '未知节点'} 处失败
           </div>
           <div className="mt-2 whitespace-pre-wrap break-words text-red-700">
             {results.project.error.message}
