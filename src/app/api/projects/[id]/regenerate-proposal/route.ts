@@ -27,36 +27,36 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
       return error('NOT_FOUND', '项目不存在', 404);
     }
 
-    const proposal = await db.collection('proposals').findOne({ projectId });
-
-    if (!proposal) {
-      return error('NOT_FOUND', '未找到该项目的提案', 404);
+    // Check if spatial layouts exist — we need zones to generate a proposal
+    const layouts = await db.collection('spatial_layouts').findOne({ projectId });
+    if (!layouts?.zones?.length) {
+      return error('CONFLICT', '空间设计尚未完成，无法生成提案', 409);
     }
 
-    if (proposal.status !== 'stale') {
-      return error('CONFLICT', '提案当前状态不允许重新生成，仅当状态为 stale 时可操作', 409);
-    }
-
-    // P0-4: supersede the old run before flipping status so any lingering
-    // resume of the stale thread is inert.
+    // P0-4: supersede the old run before starting a fresh one
     const oldRunId = project.workflowRunId as string | undefined;
     if (oldRunId) {
-      await workflowClient.supersedeRun(oldRunId);
+      await workflowClient.supersedeRun(oldRunId).catch(() => {});
     }
 
+    // Mark any existing proposal as generating (or create the intent)
     await db
       .collection('proposals')
       .updateOne(
         { projectId },
         { $set: { status: 'generating', updatedAt: new Date().toISOString() } },
+        { upsert: true },
       );
 
-    // P0-5: actually kick off the Python workflow to rebuild the proposal
-    // from existing spatial layouts. Previously this route just flipped
-    // status and returned 202, leaving the button dead.
+    // Reset project status so the UI shows progress
+    await db.collection('projects').updateOne(
+      { _id: projectId },
+      { $set: { status: 'generating_layouts', progress: 85, updatedAt: new Date().toISOString() }, $unset: { error: '' } },
+    );
+
     await workflowClient.regenerateProposal(id);
 
-    return success({ message: '正在重新生成提案文档...', previousStatus: 'stale' }, 202);
+    return success({ message: '正在重新生成提案文档...' }, 202);
   } catch (err: unknown) {
     if (err instanceof AuthError) {
       return error('UNAUTHORIZED', err.message, 401);
